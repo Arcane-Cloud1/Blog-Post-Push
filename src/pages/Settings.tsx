@@ -1,5 +1,5 @@
 // 设置页：Token、默认仓库/文件夹、编辑器偏好
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   KeyRound,
   Eye,
@@ -22,11 +22,15 @@ import { GitHubError } from "@/lib/github";
 import { cn } from "@/lib/utils";
 
 export default function Settings() {
-  const { settings, user, connect, disconnect, update, connecting } = useSettingsStore();
+  const { settings, user, connect, disconnect, update, connecting, getMaskedToken, load } = useSettingsStore();
   const toast = useToastStore();
 
   const [tokenInput, setTokenInput] = useState(settings.token);
   const [showToken, setShowToken] = useState(false);
+
+  useEffect(() => {
+    load();
+  }, [load]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [testing, setTesting] = useState(false);
 
@@ -108,12 +112,13 @@ export default function Settings() {
           <div className="relative">
             <input
               type={showToken ? "text" : "password"}
-              value={tokenInput}
+              value={connected && !showToken ? getMaskedToken() : tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
               className="input-field pr-12 font-mono text-sm"
               autoComplete="off"
               spellCheck={false}
+              readOnly={connected && !showToken}
             />
             <button
               onClick={() => setShowToken((v) => !v)}
@@ -151,7 +156,7 @@ export default function Settings() {
           </a>
           <p className="flex items-start gap-1.5 rounded-lg bg-ink-900/50 px-3 py-2 font-mono text-[10px] leading-relaxed text-paper-faint">
             <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-amber-300/60" />
-            Token 仅保存在本设备浏览器 LocalStorage，所有请求直连 GitHub，不经过任何第三方。
+            Token 使用 AES-256-GCM 加密存储在本设备浏览器，所有请求直连 GitHub，不经过任何第三方。
           </p>
         </div>
       </section>

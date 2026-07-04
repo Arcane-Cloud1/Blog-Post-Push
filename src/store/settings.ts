@@ -1,7 +1,7 @@
-// 设置 store：GitHub Token、默认仓库/文件夹、编辑器偏好、已登录用户
 import { create } from "zustand";
 import { DEFAULT_SETTINGS, type GitHubUser, type Settings } from "@/types";
 import { createGitHubClient, GitHubError, type GitHubClient } from "@/lib/github";
+import { decrypt, encrypt, maskToken } from "@/lib/encryption";
 
 const STORAGE_KEY = "inkwell-settings";
 
@@ -10,52 +10,54 @@ type SettingsState = {
   user: GitHubUser | null;
   client: GitHubClient | null;
   connecting: boolean;
-  /** 从 LocalStorage 加载已存设置 */
-  load: () => void;
-  /** 更新部分设置并持久化 */
-  update: (patch: Partial<Settings>) => void;
-  /** 测试 Token 连接并获取用户信息 */
+  load: () => Promise<void>;
+  update: (patch: Partial<Settings>) => Promise<void>;
   connect: (token?: string) => Promise<GitHubUser>;
-  /** 退出（清除 token 与用户） */
-  disconnect: () => void;
-  /** 是否已完成基础配置（token + 仓库） */
+  disconnect: () => Promise<void>;
   isConfigured: () => boolean;
+  getMaskedToken: () => string;
 };
 
-function loadFromStorage(): Settings {
+async function loadFromStorage(): Promise<Settings> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<Settings>;
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    const merged = { ...DEFAULT_SETTINGS, ...parsed };
+    if (merged.token) {
+      merged.token = await decrypt(merged.token);
+    }
+    return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
 }
 
-function saveToStorage(settings: Settings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+async function saveToStorage(settings: Settings) {
+  const toSave = { ...settings };
+  if (toSave.token) {
+    toSave.token = await encrypt(toSave.token);
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
 }
 
-const initialSettings = loadFromStorage();
-
 export const useSettingsStore = create<SettingsState>((set, get) => ({
-  settings: initialSettings,
+  settings: { ...DEFAULT_SETTINGS },
   user: null,
-  client: initialSettings.token ? createGitHubClient(initialSettings.token) : null,
+  client: null,
   connecting: false,
 
-  load() {
-    const settings = loadFromStorage();
+  async load() {
+    const settings = await loadFromStorage();
     set({
       settings,
       client: settings.token ? createGitHubClient(settings.token) : null,
     });
   },
 
-  update(patch) {
+  async update(patch) {
     const next = { ...get().settings, ...patch };
-    saveToStorage(next);
+    await saveToStorage(next);
     set({
       settings: next,
       client: next.token ? createGitHubClient(next.token) : null,
@@ -70,7 +72,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const client = createGitHubClient(useToken);
       const user = await client.getUser();
       const next = { ...get().settings, token: useToken };
-      saveToStorage(next);
+      await saveToStorage(next);
       set({ settings: next, client, user, connecting: false });
       return user;
     } catch (e) {
@@ -79,14 +81,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
-  disconnect() {
+  async disconnect() {
     const next = { ...get().settings, token: "" };
-    saveToStorage(next);
+    await saveToStorage(next);
     set({ settings: next, client: null, user: null });
   },
 
   isConfigured() {
     const s = get().settings;
     return Boolean(s.token && s.defaultOwner && s.defaultRepo);
+  },
+
+  getMaskedToken() {
+    return maskToken(get().settings.token);
   },
 }));

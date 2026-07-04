@@ -10,14 +10,14 @@ import { excerpt, relativeTime, stripMdExt, greeting, cn } from "@/lib/utils";
 
 export default function Home() {
   const navigate = useNavigate();
-  const { settings, user, connect } = useSettingsStore();
+  const { settings, user, connect, load } = useSettingsStore();
   const { drafts, recent, loadAll, createDraft } = useDraftsStore();
 
   useEffect(() => {
+    load();
     loadAll();
-  }, [loadAll]);
+  }, [load, loadAll]);
 
-  // 若有 token 但未获取用户信息，静默尝试
   useEffect(() => {
     if (settings.token && !user) {
       connect().catch(() => {
