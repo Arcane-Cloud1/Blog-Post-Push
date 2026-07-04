@@ -339,6 +339,8 @@ export default function Settings() {
                 <code className="mx-1 text-amber-300/80">{"{title}"}</code>
                 <code className="mx-1 text-amber-300/80">{"{date}"}</code>
                 <code className="mx-1 text-amber-300/80">{"{description}"}</code>
+                <code className="mx-1 text-amber-300/80">{"{image}"}</code>
+                <code className="mx-1 text-amber-300/80">{"{author}"}</code>
               </p>
             </div>
           )}

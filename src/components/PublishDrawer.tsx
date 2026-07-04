@@ -6,7 +6,7 @@ import RepoPicker, { type PickerTarget } from "@/components/RepoPicker";
 import Spinner from "@/components/Spinner";
 import { useSettingsStore } from "@/store/settings";
 import { ensureMdExtension, joinPath } from "@/lib/github";
-import { renderFrontmatter } from "@/lib/frontmatter";
+import { renderFrontmatter, extractTemplateVars, getVarInfo, buildInitialVars } from "@/lib/frontmatter";
 import { cn } from "@/lib/utils";
 
 export type PublishParams = {
@@ -17,6 +17,7 @@ export type PublishParams = {
   message: string;
   filename: string; // 含 .md
   fullPath: string; // folder/filename
+  frontmatterVars?: Record<string, string>;
 };
 
 export default function PublishDrawer({
@@ -45,15 +46,24 @@ export default function PublishDrawer({
   const [message, setMessage] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [showFrontmatterEdit, setShowFrontmatterEdit] = useState(true);
   const [showFrontmatterPreview, setShowFrontmatterPreview] = useState(false);
+  const [fmVars, setFmVars] = useState<Record<string, string>>({});
+
+  // 模板中的变量列表
+  const templateVars = useMemo(
+    () => (settings.frontmatterEnabled ? extractTemplateVars(settings.frontmatterTemplate) : []),
+    [settings.frontmatterEnabled, settings.frontmatterTemplate],
+  );
 
   const filename = useMemo(() => ensureMdExtension(title || "untitled"), [title]);
   const fullPath = useMemo(() => joinPath(target.path, filename), [target.path, filename]);
 
+  // frontmatter 实时预览
   const frontmatterPreview = useMemo(() => {
     if (!settings.frontmatterEnabled || !settings.frontmatterTemplate) return "";
-    return renderFrontmatter(settings.frontmatterTemplate, { title });
-  }, [settings.frontmatterEnabled, settings.frontmatterTemplate, title]);
+    return renderFrontmatter(settings.frontmatterTemplate, fmVars);
+  }, [settings.frontmatterEnabled, settings.frontmatterTemplate, fmVars]);
 
   // 打开时重置
   useEffect(() => {
@@ -69,9 +79,27 @@ export default function PublishDrawer({
           ? settings.commitTemplate.replace("{filename}", filename)
           : `docs: ${existingSha ? "update" : "create"} ${filename}`,
       );
+      // 初始化 frontmatter 变量
+      if (settings.frontmatterEnabled && settings.frontmatterTemplate) {
+        setFmVars(buildInitialVars(settings.frontmatterTemplate, title));
+      }
+      setShowFrontmatterEdit(true);
+      setShowFrontmatterPreview(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // title 变化时同步到 fmVars
+  useEffect(() => {
+    if (open && settings.frontmatterEnabled && fmVars.title !== undefined) {
+      setFmVars((prev) => ({ ...prev, title }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title]);
+
+  function updateFmVar(key: string, value: string) {
+    setFmVars((prev) => ({ ...prev, [key]: value }));
+  }
 
   const canPublish =
     target.owner && target.repo && message.trim() && !publishing;
@@ -88,6 +116,7 @@ export default function PublishDrawer({
         message: message.trim(),
         filename,
         fullPath,
+        frontmatterVars: settings.frontmatterEnabled ? fmVars : undefined,
       });
     } finally {
       setPublishing(false);
@@ -177,21 +206,75 @@ export default function PublishDrawer({
             />
           </div>
 
-          {/* Frontmatter 预览 */}
-          {settings.frontmatterEnabled && frontmatterPreview && (
+          {/* Frontmatter 变量编辑 */}
+          {settings.frontmatterEnabled && templateVars.length > 0 && (
             <div>
               <button
-                onClick={() => setShowFrontmatterPreview((v) => !v)}
+                onClick={() => setShowFrontmatterEdit((v) => !v)}
                 className="flex w-full items-center justify-between rounded-xl bg-ink-900/50 px-4 py-2.5 transition-colors hover:bg-ink-900"
               >
                 <div className="flex items-center gap-2">
                   <FileCode className="h-3.5 w-3.5 text-amber-300/70" />
-                  <span className="font-mono text-xs text-paper-muted">Frontmatter 预览</span>
+                  <span className="font-mono text-xs text-paper-muted">文章前缀 (Frontmatter)</span>
                 </div>
-                {showFrontmatterPreview ? (
+                {showFrontmatterEdit ? (
                   <ChevronUp className="h-4 w-4 text-paper-faint" />
                 ) : (
                   <ChevronDown className="h-4 w-4 text-paper-faint" />
+                )}
+              </button>
+
+              {showFrontmatterEdit && (
+                <div className="mt-2 space-y-2.5 rounded-xl border border-amber-300/8 bg-ink-950/40 p-3">
+                  {templateVars.map((key) => {
+                    const info = getVarInfo(key);
+                    const isTitle = key === "title";
+                    return (
+                      <div key={key}>
+                        <label className="mb-1 flex items-center gap-1.5 font-mono text-[11px] text-paper-dim">
+                          <span className="text-amber-300/80">{"{"}{key}{"}"}</span>
+                          <span>{info.label}</span>
+                        </label>
+                        {key === "description" ? (
+                          <textarea
+                            value={fmVars[key] ?? ""}
+                            onChange={(e) => updateFmVar(key, e.target.value)}
+                            disabled={publishing || isTitle}
+                            rows={2}
+                            placeholder={info.placeholder}
+                            className={cn(
+                              "input-field font-mono text-sm",
+                              isTitle && "opacity-60",
+                            )}
+                          />
+                        ) : (
+                          <input
+                            value={fmVars[key] ?? ""}
+                            onChange={(e) => updateFmVar(key, e.target.value)}
+                            disabled={publishing || isTitle}
+                            placeholder={info.placeholder}
+                            className={cn(
+                              "input-field font-mono text-sm",
+                              isTitle && "opacity-60",
+                            )}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 预览折叠 */}
+              <button
+                onClick={() => setShowFrontmatterPreview((v) => !v)}
+                className="mt-2 flex w-full items-center justify-between rounded-lg bg-ink-900/30 px-3 py-1.5 transition-colors hover:bg-ink-900/50"
+              >
+                <span className="font-mono text-[10px] text-paper-faint">预览渲染结果</span>
+                {showFrontmatterPreview ? (
+                  <ChevronUp className="h-3 w-3 text-paper-faint" />
+                ) : (
+                  <ChevronDown className="h-3 w-3 text-paper-faint" />
                 )}
               </button>
               <div
@@ -200,7 +283,7 @@ export default function PublishDrawer({
                   showFrontmatterPreview ? "max-h-64 opacity-100" : "max-h-0 opacity-0",
                 )}
               >
-                <pre className="mt-2 overflow-x-auto rounded-xl bg-ink-950/60 p-3 font-mono text-[11px] leading-relaxed text-paper-dim">
+                <pre className="mt-1 overflow-x-auto rounded-lg bg-ink-950/60 p-2.5 font-mono text-[11px] leading-relaxed text-paper-dim">
                   {frontmatterPreview}
                 </pre>
               </div>

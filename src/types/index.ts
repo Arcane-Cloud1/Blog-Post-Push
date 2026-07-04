@@ -106,8 +106,9 @@ export const DEFAULT_SETTINGS: Settings = {
   commitTemplate: "docs: update {filename}",
   frontmatterTemplate: `---
 title: '{title}'
-description: ''
+description: '{description}'
 pubDate: {date}
+image: '{image}'
 tags: []
 author: ''
 draft: false

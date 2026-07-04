@@ -119,10 +119,11 @@ export default function Editor() {
         sha = undefined;
       }
 
-      // 合并 frontmatter
+      // 合并 frontmatter（使用用户在发布抽屉中填写的变量）
       let publishContent = content;
       if (settings.frontmatterEnabled && settings.frontmatterTemplate) {
-        const fm = renderFrontmatter(settings.frontmatterTemplate, { title });
+        const vars = p.frontmatterVars ?? { title };
+        const fm = renderFrontmatter(settings.frontmatterTemplate, vars);
         publishContent = mergeFrontmatter(content, fm);
       }
 
