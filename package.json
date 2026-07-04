@@ -77,25 +77,19 @@
         "nsis",
         "portable"
       ],
-      "icon": "public/favicon.svg",
       "publish": null
     },
     "mac": {
       "target": "dmg",
-      "icon": "public/favicon.svg",
       "publish": null
     },
     "linux": {
       "target": "AppImage",
-      "icon": "public/favicon.svg",
       "publish": null
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/favicon.svg",
-      "uninstallerIcon": "public/favicon.svg",
-      "installerHeaderIcon": "public/favicon.svg"
+      "allowToChangeInstallationDirectory": true
     }
   }
 }
