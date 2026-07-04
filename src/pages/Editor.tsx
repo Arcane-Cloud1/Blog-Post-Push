@@ -20,6 +20,7 @@ import { useToastStore } from "@/store/toast";
 import { useMarkdownEditor } from "@/hooks/useMarkdownEditor";
 import { useDebouncedSave } from "@/hooks/useDebouncedSave";
 import { GitHubError } from "@/lib/github";
+import { renderFrontmatter, mergeFrontmatter } from "@/lib/frontmatter";
 import { cn } from "@/lib/utils";
 
 type View = "edit" | "preview";
@@ -118,12 +119,19 @@ export default function Editor() {
         sha = undefined;
       }
 
+      // 合并 frontmatter
+      let publishContent = content;
+      if (settings.frontmatterEnabled && settings.frontmatterTemplate) {
+        const fm = renderFrontmatter(settings.frontmatterTemplate, { title });
+        publishContent = mergeFrontmatter(content, fm);
+      }
+
       const result = await client.putFile({
         owner: p.owner,
         repo: p.repo,
         path: p.fullPath,
         message: p.message,
-        content,
+        content: publishContent,
         sha,
         branch: p.branch,
       });
@@ -304,6 +312,7 @@ export default function Editor() {
         open={publishOpen}
         onClose={() => setPublishOpen(false)}
         title={title}
+        content={content}
         existingSha={existingSha}
         onPublish={handlePublish}
       />

@@ -12,6 +12,8 @@ import {
   MessageSquare,
   RefreshCw,
   ShieldCheck,
+  FileCode,
+  RotateCcw,
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import RepoPicker, { type PickerTarget } from "@/components/RepoPicker";
@@ -19,6 +21,7 @@ import Spinner from "@/components/Spinner";
 import { useSettingsStore } from "@/store/settings";
 import { useToastStore } from "@/store/toast";
 import { GitHubError } from "@/lib/github";
+import { DEFAULT_SETTINGS } from "@/types";
 import { cn } from "@/lib/utils";
 
 export default function Settings() {
@@ -270,6 +273,75 @@ export default function Settings() {
               <code className="text-amber-300/80">{"{filename}"}</code> 会被替换为实际文件名
             </p>
           </div>
+        </div>
+      </section>
+
+      {/* Frontmatter 模板 */}
+      <section className="mb-7">
+        <div className="mb-3 flex items-center gap-2">
+          <FileCode className="h-4 w-4 text-amber-300" />
+          <h2 className="font-display text-lg text-paper">文章前缀 (Frontmatter)</h2>
+        </div>
+        <div className="space-y-4 rounded-2xl border border-amber-300/10 bg-ink-850/40 p-4">
+          {/* 开关 */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <FileCode className="h-4 w-4 text-amber-300/80" />
+              <div>
+                <p className="font-body text-sm text-paper-muted">发布时自动添加前缀</p>
+                <p className="font-mono text-[10px] text-paper-faint">
+                  YAML Frontmatter，支持变量替换
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => update({ frontmatterEnabled: !settings.frontmatterEnabled })}
+              className={cn(
+                "relative h-6 w-11 rounded-full transition-colors",
+                settings.frontmatterEnabled ? "bg-amber-300" : "bg-ink-700",
+              )}
+              aria-label="切换 Frontmatter"
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 h-5 w-5 rounded-full bg-ink-950 transition-transform",
+                  settings.frontmatterEnabled ? "translate-x-[22px]" : "translate-x-0.5",
+                )}
+              />
+            </button>
+          </div>
+
+          {/* 模板编辑器 */}
+          {settings.frontmatterEnabled && (
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="font-mono text-xs text-paper-muted">模板内容</span>
+                <button
+                  onClick={() => {
+                    update({ frontmatterTemplate: DEFAULT_SETTINGS.frontmatterTemplate });
+                    toast.info("已恢复默认模板");
+                  }}
+                  className="flex items-center gap-1 font-mono text-[10px] text-amber-300/80 transition-colors hover:text-amber-300"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  恢复默认
+                </button>
+              </div>
+              <textarea
+                value={settings.frontmatterTemplate}
+                onChange={(e) => update({ frontmatterTemplate: e.target.value })}
+                rows={10}
+                spellCheck={false}
+                className="input-field font-mono text-xs leading-relaxed"
+              />
+              <p className="mt-2 font-mono text-[10px] text-paper-faint">
+                支持变量：
+                <code className="mx-1 text-amber-300/80">{"{title}"}</code>
+                <code className="mx-1 text-amber-300/80">{"{date}"}</code>
+                <code className="mx-1 text-amber-300/80">{"{description}"}</code>
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

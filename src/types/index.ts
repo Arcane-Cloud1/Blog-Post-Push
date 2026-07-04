@@ -10,6 +10,8 @@ export type Settings = {
   fontSize: number;
   autoSave: boolean;
   commitTemplate: string;
+  frontmatterTemplate: string;
+  frontmatterEnabled: boolean;
 };
 
 /** 草稿（持久化到 IndexedDB） */
@@ -102,4 +104,13 @@ export const DEFAULT_SETTINGS: Settings = {
   fontSize: 16,
   autoSave: true,
   commitTemplate: "docs: update {filename}",
+  frontmatterTemplate: `---
+title: '{title}'
+description: ''
+pubDate: {date}
+tags: []
+author: ''
+draft: false
+---`,
+  frontmatterEnabled: true,
 };

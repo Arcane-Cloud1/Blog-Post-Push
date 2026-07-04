@@ -1,11 +1,13 @@
 // 发布抽屉：确认仓库/文件夹/commit message 后发布
 import { useEffect, useMemo, useState } from "react";
-import { FolderOpen, Upload, GitBranch, FileText } from "lucide-react";
+import { FolderOpen, Upload, GitBranch, FileText, FileCode, ChevronDown, ChevronUp } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import RepoPicker, { type PickerTarget } from "@/components/RepoPicker";
 import Spinner from "@/components/Spinner";
 import { useSettingsStore } from "@/store/settings";
 import { ensureMdExtension, joinPath } from "@/lib/github";
+import { renderFrontmatter } from "@/lib/frontmatter";
+import { cn } from "@/lib/utils";
 
 export type PublishParams = {
   owner: string;
@@ -21,12 +23,14 @@ export default function PublishDrawer({
   open,
   onClose,
   title,
+  content,
   existingSha,
   onPublish,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  content: string;
   existingSha?: string;
   onPublish: (params: PublishParams) => Promise<void>;
 }) {
@@ -41,9 +45,15 @@ export default function PublishDrawer({
   const [message, setMessage] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [showFrontmatterPreview, setShowFrontmatterPreview] = useState(false);
 
   const filename = useMemo(() => ensureMdExtension(title || "untitled"), [title]);
   const fullPath = useMemo(() => joinPath(target.path, filename), [target.path, filename]);
+
+  const frontmatterPreview = useMemo(() => {
+    if (!settings.frontmatterEnabled || !settings.frontmatterTemplate) return "";
+    return renderFrontmatter(settings.frontmatterTemplate, { title });
+  }, [settings.frontmatterEnabled, settings.frontmatterTemplate, title]);
 
   // 打开时重置
   useEffect(() => {
@@ -166,6 +176,36 @@ export default function PublishDrawer({
               placeholder="docs: update article"
             />
           </div>
+
+          {/* Frontmatter 预览 */}
+          {settings.frontmatterEnabled && frontmatterPreview && (
+            <div>
+              <button
+                onClick={() => setShowFrontmatterPreview((v) => !v)}
+                className="flex w-full items-center justify-between rounded-xl bg-ink-900/50 px-4 py-2.5 transition-colors hover:bg-ink-900"
+              >
+                <div className="flex items-center gap-2">
+                  <FileCode className="h-3.5 w-3.5 text-amber-300/70" />
+                  <span className="font-mono text-xs text-paper-muted">Frontmatter 预览</span>
+                </div>
+                {showFrontmatterPreview ? (
+                  <ChevronUp className="h-4 w-4 text-paper-faint" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-paper-faint" />
+                )}
+              </button>
+              <div
+                className={cn(
+                  "overflow-hidden transition-all duration-200",
+                  showFrontmatterPreview ? "max-h-64 opacity-100" : "max-h-0 opacity-0",
+                )}
+              >
+                <pre className="mt-2 overflow-x-auto rounded-xl bg-ink-950/60 p-3 font-mono text-[11px] leading-relaxed text-paper-dim">
+                  {frontmatterPreview}
+                </pre>
+              </div>
+            </div>
+          )}
 
           {existingSha && (
             <p className="rounded-lg bg-amber-300/5 px-3 py-2 font-mono text-[11px] text-amber-300/80">
