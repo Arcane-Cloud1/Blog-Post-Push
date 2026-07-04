@@ -63,6 +63,11 @@ export async function addRecent(file: RecentFile): Promise<void> {
   await db.put(RECENT_STORE, file);
 }
 
+export async function deleteRecent(path: string): Promise<void> {
+  const db = await getDB();
+  await db.delete(RECENT_STORE, path);
+}
+
 export async function clearRecent(): Promise<void> {
   const db = await getDB();
   await db.clear(RECENT_STORE);

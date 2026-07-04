@@ -89,6 +89,15 @@ export type GitHubClient = {
     sha?: string;
     branch?: string;
   }) => Promise<GitHubCommitResult>;
+  putRawFile: (params: {
+    owner: string;
+    repo: string;
+    path: string;
+    message: string;
+    content: string;
+    sha?: string;
+    branch?: string;
+  }) => Promise<GitHubCommitResult>;
   deleteFile: (params: {
     owner: string;
     repo: string;
@@ -147,6 +156,22 @@ export function createGitHubClient(token: string): GitHubClient {
       const body: Record<string, unknown> = {
         message,
         content: encodeBase64(content),
+      };
+      if (sha) body.sha = sha;
+      if (branch) body.branch = branch;
+      return request<GitHubCommitResult>(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    },
+
+    async putRawFile({ owner, repo, path, message, content, sha, branch }) {
+      const cleanPath = path.replace(/^\/+/, "");
+      const url = `/repos/${owner}/${repo}/contents/${cleanPath}`;
+      const body: Record<string, unknown> = {
+        message,
+        content,
       };
       if (sha) body.sha = sha;
       if (branch) body.branch = branch;

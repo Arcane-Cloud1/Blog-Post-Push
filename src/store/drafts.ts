@@ -4,6 +4,7 @@ import type { Draft, RecentFile } from "@/types";
 import {
   addRecent,
   deleteDraft as dbDeleteDraft,
+  deleteRecent as dbDeleteRecent,
   getDraft,
   listDrafts,
   listRecent,
@@ -27,6 +28,8 @@ type DraftsState = {
   fetchDraft: (id: string) => Promise<Draft | undefined>;
   /** 记录一次成功发布 */
   recordRecent: (file: RecentFile) => Promise<void>;
+  /** 删除最近发布记录 */
+  deleteRecent: (path: string) => Promise<void>;
 };
 
 export const useDraftsStore = create<DraftsState>((set, get) => ({
@@ -82,5 +85,10 @@ export const useDraftsStore = create<DraftsState>((set, get) => ({
     await addRecent(file);
     const recent = await listRecent();
     set({ recent });
+  },
+
+  async deleteRecent(path) {
+    await dbDeleteRecent(path);
+    set({ recent: get().recent.filter((r) => r.path !== path) });
   },
 }));

@@ -121,6 +121,139 @@ function extractFirstParagraph(title: string, content: string): string {
 /**
  * 转义 YAML 字符串值（单引号转义）
  */
-function escapeYaml(str: string): string {
+export function escapeYaml(str: string): string {
   return str.replace(/'/g, "''");
+}
+
+/** Parsed frontmatter field */
+export type FrontmatterField = {
+  /** YAML key name (e.g. "title", "pubDate") */
+  key: string;
+  /** Friendly label/description in Chinese */
+  label: string;
+  /** The full original line from the template */
+  templateLine: string;
+  /** Whether this line contains a {variable} placeholder */
+  hasVariable: boolean;
+  /** The variable name if hasVariable is true */
+  variable?: string;
+  /** The static value if hasVariable is false */
+  staticValue?: string;
+  /** Input type hint */
+  inputType: "text" | "textarea" | "date" | "tags";
+  /** Placeholder text */
+  placeholder: string;
+};
+
+/** Map of YAML key to friendly Chinese label and input type */
+const FIELD_META: Record<string, { label: string; inputType: "text" | "textarea" | "date" | "tags"; placeholder: string }> = {
+  title: { label: "文章标题", inputType: "text", placeholder: "输入文章标题" },
+  description: { label: "文章简介", inputType: "textarea", placeholder: "简短描述文章内容" },
+  pubDate: { label: "发布日期", inputType: "date", placeholder: "YYYY-MM-DD" },
+  image: { label: "预览图", inputType: "text", placeholder: "图片 URL 或路径" },
+  tags: { label: "标签", inputType: "tags", placeholder: "标签1, 标签2" },
+  author: { label: "作者", inputType: "text", placeholder: "作者名" },
+  draft: { label: "草稿", inputType: "text", placeholder: "true / false" },
+  hero: { label: "封面图", inputType: "text", placeholder: "封面图 URL" },
+};
+
+/** Parse a frontmatter template into individual fields */
+export function parseFrontmatterTemplate(template: string): FrontmatterField[] {
+  // Extract the content between --- markers
+  const trimmed = template.trim();
+  let yamlContent: string;
+  if (trimmed.startsWith("---")) {
+    const endIdx = trimmed.indexOf("---", 3);
+    yamlContent = endIdx === -1 ? trimmed.slice(3) : trimmed.slice(3, endIdx);
+  } else {
+    yamlContent = trimmed;
+  }
+
+  const lines = yamlContent.split("\n").map(l => l.trim()).filter(Boolean);
+
+  return lines.map(line => {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) {
+      // No colon - treat as comment/separator
+      return {
+        key: line,
+        label: line,
+        templateLine: line,
+        hasVariable: false,
+        staticValue: "",
+        inputType: "text" as const,
+        placeholder: "",
+      };
+    }
+
+    const key = line.slice(0, colonIdx).trim();
+    const value = line.slice(colonIdx + 1).trim();
+    const meta = FIELD_META[key] ?? { label: key, inputType: "text" as const, placeholder: `输入 ${key}` };
+
+    // Check for {variable} placeholder
+    const varMatch = value.match(/\{(\w+)\}/);
+    if (varMatch) {
+      return {
+        key,
+        label: meta.label,
+        templateLine: line,
+        hasVariable: true,
+        variable: varMatch[1],
+        inputType: meta.inputType,
+        placeholder: meta.placeholder,
+      };
+    }
+
+    return {
+      key,
+      label: meta.label,
+      templateLine: line,
+      hasVariable: false,
+      staticValue: value,
+      inputType: meta.inputType,
+      placeholder: meta.placeholder,
+    };
+  });
+}
+
+/** Build frontmatter from fields and user values, skipping disabled fields */
+export function buildFrontmatterFromFields(
+  fields: FrontmatterField[],
+  values: Record<string, string>,
+  enabled: Record<string, boolean>,
+): string {
+  const lines: string[] = ["---"];
+
+  for (const field of fields) {
+    if (!enabled[field.key]) continue; // Skip disabled fields
+
+    if (field.hasVariable && field.variable) {
+      const value = values[field.variable] ?? "";
+      // Determine the YAML value format from the template line
+      const templateValue = field.templateLine.slice(field.templateLine.indexOf(":") + 1).trim();
+      if (templateValue.startsWith("'") && templateValue.endsWith("'")) {
+        lines.push(`${field.key}: '${escapeYaml(value)}'`);
+      } else {
+        lines.push(`${field.key}: ${value || field.staticValue || ""}`);
+      }
+    } else if (field.hasVariable) {
+      lines.push(field.templateLine);
+    } else {
+      // Static line - if user has provided a value, use it; otherwise use original
+      const userValue = values[field.key];
+      if (userValue !== undefined && userValue !== field.staticValue) {
+        // Determine formatting
+        if (field.staticValue?.startsWith("'")) {
+          lines.push(`${field.key}: '${escapeYaml(userValue)}'`);
+        } else {
+          lines.push(`${field.key}: ${userValue}`);
+        }
+      } else {
+        lines.push(field.templateLine);
+      }
+    }
+  }
+
+  lines.push("---");
+  return lines.join("\n");
 }

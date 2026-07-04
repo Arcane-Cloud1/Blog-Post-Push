@@ -12,6 +12,7 @@ export type Settings = {
   commitTemplate: string;
   frontmatterTemplate: string;
   frontmatterEnabled: boolean;
+  imagePath: string;
 };
 
 /** 草稿（持久化到 IndexedDB） */
@@ -114,4 +115,5 @@ author: ''
 draft: false
 ---`,
   frontmatterEnabled: true,
+  imagePath: "src/assets/images",
 };

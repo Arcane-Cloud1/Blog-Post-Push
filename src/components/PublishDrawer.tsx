@@ -1,23 +1,30 @@
 // 发布抽屉：确认仓库/文件夹/commit message 后发布
-import { useEffect, useMemo, useState } from "react";
-import { FolderOpen, Upload, GitBranch, FileText, FileCode, ChevronDown, ChevronUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FolderOpen, Upload, GitBranch, FileText, FileCode, ChevronDown, ChevronUp, ImagePlus, Lock as LockIcon } from "lucide-react";
 import Sheet from "@/components/Sheet";
 import RepoPicker, { type PickerTarget } from "@/components/RepoPicker";
 import Spinner from "@/components/Spinner";
 import { useSettingsStore } from "@/store/settings";
-import { ensureMdExtension, joinPath } from "@/lib/github";
-import { renderFrontmatter, extractTemplateVars, getVarInfo, buildInitialVars } from "@/lib/frontmatter";
+import { useToastStore } from "@/store/toast";
+import { type GitHubClient, ensureMdExtension, joinPath } from "@/lib/github";
+import {
+  parseFrontmatterTemplate,
+  buildFrontmatterFromFields,
+  type FrontmatterField,
+} from "@/lib/frontmatter";
 import { cn } from "@/lib/utils";
 
 export type PublishParams = {
   owner: string;
   repo: string;
-  path: string; // 文件夹路径
+  path: string;
   branch?: string;
   message: string;
-  filename: string; // 含 .md
-  fullPath: string; // folder/filename
-  frontmatterVars?: Record<string, string>;
+  filename: string;
+  fullPath: string;
+  frontmatterFields?: FrontmatterField[];
+  frontmatterValues?: Record<string, string>;
+  frontmatterEnabled?: Record<string, boolean>;
 };
 
 export default function PublishDrawer({
@@ -27,6 +34,7 @@ export default function PublishDrawer({
   content,
   existingSha,
   onPublish,
+  client,
 }: {
   open: boolean;
   onClose: () => void;
@@ -34,8 +42,10 @@ export default function PublishDrawer({
   content: string;
   existingSha?: string;
   onPublish: (params: PublishParams) => Promise<void>;
+  client?: GitHubClient | null;
 }) {
   const settings = useSettingsStore((s) => s.settings);
+  const toast = useToastStore();
 
   const [target, setTarget] = useState<PickerTarget>({
     owner: settings.defaultOwner,
@@ -48,24 +58,25 @@ export default function PublishDrawer({
   const [publishing, setPublishing] = useState(false);
   const [showFrontmatterEdit, setShowFrontmatterEdit] = useState(true);
   const [showFrontmatterPreview, setShowFrontmatterPreview] = useState(false);
-  const [fmVars, setFmVars] = useState<Record<string, string>>({});
+  const [fmValues, setFmValues] = useState<Record<string, string>>({});
+  const [fmEnabled, setFmEnabled] = useState<Record<string, boolean>>({});
+  const [uploading, setUploading] = useState(false);
 
-  // 模板中的变量列表
-  const templateVars = useMemo(
-    () => (settings.frontmatterEnabled ? extractTemplateVars(settings.frontmatterTemplate) : []),
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fmFields = useMemo<FrontmatterField[]>(
+    () => (settings.frontmatterEnabled ? parseFrontmatterTemplate(settings.frontmatterTemplate) : []),
     [settings.frontmatterEnabled, settings.frontmatterTemplate],
   );
 
   const filename = useMemo(() => ensureMdExtension(title || "untitled"), [title]);
   const fullPath = useMemo(() => joinPath(target.path, filename), [target.path, filename]);
 
-  // frontmatter 实时预览
   const frontmatterPreview = useMemo(() => {
-    if (!settings.frontmatterEnabled || !settings.frontmatterTemplate) return "";
-    return renderFrontmatter(settings.frontmatterTemplate, fmVars);
-  }, [settings.frontmatterEnabled, settings.frontmatterTemplate, fmVars]);
+    if (!settings.frontmatterEnabled || fmFields.length === 0) return "";
+    return buildFrontmatterFromFields(fmFields, fmValues, fmEnabled);
+  }, [settings.frontmatterEnabled, fmFields, fmValues, fmEnabled]);
 
-  // 打开时重置
   useEffect(() => {
     if (open) {
       setTarget({
@@ -79,9 +90,36 @@ export default function PublishDrawer({
           ? settings.commitTemplate.replace("{filename}", filename)
           : `docs: ${existingSha ? "update" : "create"} ${filename}`,
       );
-      // 初始化 frontmatter 变量
       if (settings.frontmatterEnabled && settings.frontmatterTemplate) {
-        setFmVars(buildInitialVars(settings.frontmatterTemplate, title));
+        const fields = parseFrontmatterTemplate(settings.frontmatterTemplate);
+        const initValues: Record<string, string> = {};
+        const initEnabled: Record<string, boolean> = {};
+        for (const field of fields) {
+          if (field.hasVariable && field.variable) {
+            initEnabled[field.key] = true;
+            if (field.variable === "title") {
+              initValues[field.variable] = title;
+            } else if (field.variable === "date") {
+              initValues[field.variable] = new Date().toISOString().slice(0, 10);
+            } else if (field.variable === "description") {
+              initValues[field.variable] = title;
+            } else {
+              initValues[field.variable] = "";
+            }
+          } else {
+            initEnabled[field.key] = false;
+            initValues[field.key] = field.staticValue ?? "";
+          }
+        }
+        const titleField = fields.find((f) => f.key === "title");
+        if (titleField) {
+          initEnabled["title"] = true;
+          if (titleField.variable) {
+            initValues[titleField.variable] = title;
+          }
+        }
+        setFmValues(initValues);
+        setFmEnabled(initEnabled);
       }
       setShowFrontmatterEdit(true);
       setShowFrontmatterPreview(false);
@@ -89,16 +127,79 @@ export default function PublishDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // title 变化时同步到 fmVars
   useEffect(() => {
-    if (open && settings.frontmatterEnabled && fmVars.title !== undefined) {
-      setFmVars((prev) => ({ ...prev, title }));
+    if (open && settings.frontmatterEnabled) {
+      const titleField = fmFields.find((f) => f.key === "title");
+      if (titleField?.variable) {
+        setFmValues((prev) => ({ ...prev, [titleField.variable!]: title }));
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title]);
 
-  function updateFmVar(key: string, value: string) {
-    setFmVars((prev) => ({ ...prev, [key]: value }));
+  function updateFmValue(key: string, value: string) {
+    setFmValues((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function toggleFmEnabled(key: string) {
+    if (key === "title") return;
+    setFmEnabled((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as ArrayBuffer;
+        const bytes = new Uint8Array(result);
+        let binary = "";
+        bytes.forEach((b) => (binary += String.fromCharCode(b)));
+        resolve(btoa(binary));
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!client) {
+      toast.error("未连接 GitHub，无法上传图片");
+      return;
+    }
+    if (!target.owner || !target.repo) {
+      toast.error("请先选择目标仓库");
+      return;
+    }
+    setUploading(true);
+    try {
+      const base64 = await fileToBase64(file);
+      const uploadPath = joinPath(settings.imagePath, file.name);
+      await client.putRawFile({
+        owner: target.owner,
+        repo: target.repo,
+        path: uploadPath,
+        message: `upload image: ${file.name}`,
+        content: base64,
+        branch: target.branch,
+      });
+      const imageUrl = `https://raw.githubusercontent.com/${target.owner}/${target.repo}/${target.branch || "main"}/${uploadPath}`;
+      // Fill into image variable
+      const imageField = fmFields.find((f) => f.key === "image" || f.variable === "image");
+      const valueKey = imageField?.hasVariable && imageField.variable ? imageField.variable : "image";
+      updateFmValue(valueKey, imageUrl);
+      if (imageField && !fmEnabled[imageField.key]) {
+        toggleFmEnabled(imageField.key);
+      }
+      toast.success("图片已上传");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "图片上传失败");
+    } finally {
+      setUploading(false);
+      // Reset file input so same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   const canPublish =
@@ -116,7 +217,9 @@ export default function PublishDrawer({
         message: message.trim(),
         filename,
         fullPath,
-        frontmatterVars: settings.frontmatterEnabled ? fmVars : undefined,
+        frontmatterFields: settings.frontmatterEnabled ? fmFields : undefined,
+        frontmatterValues: settings.frontmatterEnabled ? fmValues : undefined,
+        frontmatterEnabled: settings.frontmatterEnabled ? fmEnabled : undefined,
       });
     } finally {
       setPublishing(false);
@@ -206,8 +309,8 @@ export default function PublishDrawer({
             />
           </div>
 
-          {/* Frontmatter 变量编辑 */}
-          {settings.frontmatterEnabled && templateVars.length > 0 && (
+          {/* Frontmatter 字段编辑 */}
+          {settings.frontmatterEnabled && fmFields.length > 0 && (
             <div>
               <button
                 onClick={() => setShowFrontmatterEdit((v) => !v)}
@@ -225,40 +328,115 @@ export default function PublishDrawer({
               </button>
 
               {showFrontmatterEdit && (
-                <div className="mt-2 space-y-2.5 rounded-xl border border-amber-300/8 bg-ink-950/40 p-3">
-                  {templateVars.map((key) => {
-                    const info = getVarInfo(key);
-                    const isTitle = key === "title";
+                <div className="mt-2 space-y-2">
+                  {fmFields.map((field) => {
+                    const isTitle = field.key === "title";
+                    const isEnabled = fmEnabled[field.key] ?? false;
+                    const valueKey = field.hasVariable && field.variable ? field.variable : field.key;
+                    const value = fmValues[valueKey] ?? "";
+
                     return (
-                      <div key={key}>
-                        <label className="mb-1 flex items-center gap-1.5 font-mono text-[11px] text-paper-dim">
-                          <span className="text-amber-300/80">{"{"}{key}{"}"}</span>
-                          <span>{info.label}</span>
-                        </label>
-                        {key === "description" ? (
-                          <textarea
-                            value={fmVars[key] ?? ""}
-                            onChange={(e) => updateFmVar(key, e.target.value)}
-                            disabled={publishing || isTitle}
-                            rows={2}
-                            placeholder={info.placeholder}
-                            className={cn(
-                              "input-field font-mono text-sm",
-                              isTitle && "opacity-60",
-                            )}
-                          />
-                        ) : (
-                          <input
-                            value={fmVars[key] ?? ""}
-                            onChange={(e) => updateFmVar(key, e.target.value)}
-                            disabled={publishing || isTitle}
-                            placeholder={info.placeholder}
-                            className={cn(
-                              "input-field font-mono text-sm",
-                              isTitle && "opacity-60",
-                            )}
-                          />
+                      <div
+                        key={field.key}
+                        className={cn(
+                          "rounded-xl border border-amber-300/8 bg-ink-950/40 p-3 transition-opacity",
+                          !isEnabled && "opacity-40",
                         )}
+                      >
+                        {/* Label row with toggle */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {isTitle ? (
+                              <LockIcon className="h-3.5 w-3.5 shrink-0 text-amber-300/60" />
+                            ) : (
+                              <button
+                                onClick={() => toggleFmEnabled(field.key)}
+                                className={cn(
+                                  "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+                                  isEnabled ? "bg-amber-300" : "bg-ink-700",
+                                )}
+                                aria-label={`切换 ${field.label}`}
+                              >
+                                <span
+                                  className={cn(
+                                    "absolute top-0.5 h-4 w-4 rounded-full bg-ink-950 transition-transform",
+                                    isEnabled ? "translate-x-[17px]" : "translate-x-0.5",
+                                  )}
+                                />
+                              </button>
+                            )}
+                            <span className="font-body text-sm text-paper-muted">
+                              {field.label}
+                            </span>
+                            <span className="font-mono text-[10px] text-paper-faint">
+                              ({field.key})
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Input field */}
+                        <div className="mt-2">
+                          {field.inputType === "textarea" ? (
+                            <textarea
+                              value={value}
+                              onChange={(e) => updateFmValue(valueKey, e.target.value)}
+                              disabled={publishing || !isEnabled}
+                              rows={2}
+                              placeholder={field.placeholder}
+                              className="input-field font-mono text-sm"
+                            />
+                          ) : field.inputType === "date" ? (
+                            <input
+                              type="date"
+                              value={value}
+                              onChange={(e) => updateFmValue(valueKey, e.target.value)}
+                              disabled={publishing || !isEnabled}
+                              placeholder={field.placeholder}
+                              className="input-field font-mono text-sm"
+                            />
+                          ) : (field.key === "image" || field.variable === "image") ? (
+                            <div className="flex gap-2">
+                              <input
+                                value={value}
+                                onChange={(e) => updateFmValue(valueKey, e.target.value)}
+                                disabled={publishing || !isEnabled}
+                                placeholder={field.placeholder}
+                                className="input-field font-mono text-sm flex-1"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={publishing || !isEnabled || uploading || !client}
+                                className="btn-ghost !px-2.5 !py-1.5 shrink-0 disabled:opacity-40"
+                                title="上传预览图到 GitHub"
+                              >
+                                {uploading ? (
+                                  <Spinner size={14} />
+                                ) : (
+                                  <ImagePlus className="h-4 w-4" />
+                                )}
+                              </button>
+                              <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handleImageUpload}
+                                className="hidden"
+                              />
+                            </div>
+                          ) : (
+                            <input
+                              value={value}
+                              onChange={(e) => updateFmValue(valueKey, e.target.value)}
+                              disabled={publishing || !isEnabled || isTitle}
+                              placeholder={field.placeholder}
+                              className={cn(
+                                "input-field font-mono text-sm",
+                                isTitle && "opacity-60",
+                              )}
+                            />
+                          )}
+                        </div>
                       </div>
                     );
                   })}

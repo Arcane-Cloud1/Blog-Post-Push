@@ -1,17 +1,25 @@
 // 首页（写作台）
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PenLine, FileText, FolderGit2, ChevronRight, Plus, Sparkles } from "lucide-react";
+import { PenLine, FileText, FolderGit2, ChevronRight, Plus, Sparkles, Trash2 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import EmptyState from "@/components/EmptyState";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { useSettingsStore } from "@/store/settings";
 import { useDraftsStore } from "@/store/drafts";
+import { useToastStore } from "@/store/toast";
+import { GitHubError } from "@/lib/github";
 import { excerpt, relativeTime, stripMdExt, greeting, cn } from "@/lib/utils";
+import type { Draft, RecentFile } from "@/types";
 
 export default function Home() {
   const navigate = useNavigate();
-  const { settings, user, connect, load } = useSettingsStore();
-  const { drafts, recent, loadAll, createDraft } = useDraftsStore();
+  const { settings, user, client, connect, load } = useSettingsStore();
+  const { drafts, recent, loadAll, createDraft, removeDraft, deleteRecent } = useDraftsStore();
+  const toast = useToastStore();
+
+  const [draftToDelete, setDraftToDelete] = useState<Draft | null>(null);
+  const [recentToDelete, setRecentToDelete] = useState<RecentFile | null>(null);
 
   useEffect(() => {
     load();
@@ -32,6 +40,47 @@ export default function Home() {
   async function startNewArticle() {
     const draft = await createDraft({ content: "# 新文章\n\n" });
     navigate(`/editor?file=${draft.id}`);
+  }
+
+  async function handleDeleteDraft() {
+    if (!draftToDelete) return;
+    try {
+      await removeDraft(draftToDelete.id);
+      toast.success("草稿已删除");
+    } catch {
+      toast.error("删除草稿失败");
+    } finally {
+      setDraftToDelete(null);
+    }
+  }
+
+  async function handleDeleteRecent() {
+    if (!recentToDelete) return;
+    if (!client) {
+      toast.error("未连接 GitHub，无法删除远程文件");
+      setRecentToDelete(null);
+      return;
+    }
+    try {
+      await client.deleteFile({
+        owner: recentToDelete.owner,
+        repo: recentToDelete.repo,
+        path: recentToDelete.path,
+        message: `Delete ${recentToDelete.path}`,
+        sha: recentToDelete.sha,
+        branch: recentToDelete.branch,
+      });
+      await deleteRecent(recentToDelete.path);
+      toast.success("文件已从 GitHub 删除");
+    } catch (e) {
+      if (e instanceof GitHubError) {
+        toast.error(e.message);
+      } else {
+        toast.error("删除文件失败");
+      }
+    } finally {
+      setRecentToDelete(null);
+    }
   }
 
   return (
@@ -163,6 +212,16 @@ export default function Home() {
                       {excerpt(draft.content, 50)} · {relativeTime(draft.updatedAt)}
                     </p>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDraftToDelete(draft);
+                    }}
+                    className="shrink-0 rounded-full p-1.5 text-paper-faint opacity-0 transition-opacity hover:bg-clay/10 hover:text-clay group-hover:opacity-100"
+                    title="删除草稿"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                   {draft.remoteSha ? (
                     <span className="shrink-0 rounded-full bg-moss/15 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-moss">
                       已发布
@@ -188,12 +247,22 @@ export default function Home() {
               <li key={f.path + f.sha}>
                 <button
                   onClick={() => navigate(`/files`)}
-                  className="flex w-full items-center gap-3 rounded-xl border border-amber-300/8 bg-ink-850/30 px-3.5 py-2.5 text-left transition-colors hover:bg-ink-850/60"
+                  className="group flex w-full items-center gap-3 rounded-xl border border-amber-300/8 bg-ink-850/30 px-3.5 py-2.5 text-left transition-colors hover:bg-ink-850/60"
                 >
                   <FileText className="h-3.5 w-3.5 shrink-0 text-moss" />
                   <span className="min-w-0 flex-1 truncate font-mono text-xs text-paper-muted">
                     {f.owner}/{f.repo}/{f.path}
                   </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRecentToDelete(f);
+                    }}
+                    className="shrink-0 rounded-full p-1 text-paper-faint opacity-0 transition-opacity hover:bg-clay/10 hover:text-clay group-hover:opacity-100"
+                    title="删除文件"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                   <span className="shrink-0 font-mono text-[10px] text-paper-faint">
                     {relativeTime(f.updatedAt)}
                   </span>
@@ -203,6 +272,28 @@ export default function Home() {
           </ul>
         </section>
       )}
+
+      {/* 删除草稿确认 */}
+      <ConfirmDialog
+        open={draftToDelete !== null}
+        title="删除草稿"
+        message={`确定要删除「${draftToDelete?.title ? stripMdExt(draftToDelete.title) : "无标题"}」吗？此操作不可撤销。`}
+        confirmText="删除"
+        danger
+        onConfirm={handleDeleteDraft}
+        onCancel={() => setDraftToDelete(null)}
+      />
+
+      {/* 删除已发布文件确认 */}
+      <ConfirmDialog
+        open={recentToDelete !== null}
+        title="删除已发布文件"
+        message={`确定要从 GitHub 删除「${recentToDelete?.path ?? ""}」吗？此操作将同时删除远程文件和本地记录，不可撤销。`}
+        confirmText="删除"
+        danger
+        onConfirm={handleDeleteRecent}
+        onCancel={() => setRecentToDelete(null)}
+      />
     </AppLayout>
   );
 }

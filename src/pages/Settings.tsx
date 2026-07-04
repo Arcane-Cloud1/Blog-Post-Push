@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   FileCode,
   RotateCcw,
+  Image,
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import RepoPicker, { type PickerTarget } from "@/components/RepoPicker";
@@ -199,6 +200,25 @@ export default function Settings() {
           <RefreshCw className="h-4 w-4" />
           浏览并选择文件夹
         </button>
+
+        {/* 默认图片上传路径 */}
+        <div className="mt-3">
+          <div className="mb-2 flex items-center gap-2">
+            <Image className="h-3.5 w-3.5 text-amber-300/80" />
+            <span className="font-body text-sm text-paper-muted">
+              默认图片上传路径
+            </span>
+          </div>
+          <input
+            value={settings.imagePath}
+            onChange={(e) => update({ imagePath: e.target.value })}
+            placeholder="src/assets/images"
+            className="input-field font-mono text-sm"
+          />
+          <p className="mt-1.5 font-mono text-[10px] text-paper-faint">
+            上传图片时保存到仓库的路径前缀
+          </p>
+        </div>
       </section>
 
       {/* 编辑器偏好 */}

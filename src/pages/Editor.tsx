@@ -20,7 +20,7 @@ import { useToastStore } from "@/store/toast";
 import { useMarkdownEditor } from "@/hooks/useMarkdownEditor";
 import { useDebouncedSave } from "@/hooks/useDebouncedSave";
 import { GitHubError } from "@/lib/github";
-import { renderFrontmatter, mergeFrontmatter } from "@/lib/frontmatter";
+import { buildFrontmatterFromFields, mergeFrontmatter } from "@/lib/frontmatter";
 import { cn } from "@/lib/utils";
 
 type View = "edit" | "preview";
@@ -119,11 +119,14 @@ export default function Editor() {
         sha = undefined;
       }
 
-      // 合并 frontmatter（使用用户在发布抽屉中填写的变量）
+      // 合并 frontmatter（使用用户在发布抽屉中填写的字段）
       let publishContent = content;
-      if (settings.frontmatterEnabled && settings.frontmatterTemplate) {
-        const vars = p.frontmatterVars ?? { title };
-        const fm = renderFrontmatter(settings.frontmatterTemplate, vars);
+      if (settings.frontmatterEnabled && p.frontmatterFields) {
+        const fm = buildFrontmatterFromFields(
+          p.frontmatterFields,
+          p.frontmatterValues ?? {},
+          p.frontmatterEnabled ?? {},
+        );
         publishContent = mergeFrontmatter(content, fm);
       }
 
@@ -316,6 +319,7 @@ export default function Editor() {
         content={content}
         existingSha={existingSha}
         onPublish={handlePublish}
+        client={client}
       />
     </div>
   );
